@@ -40,7 +40,7 @@ DATABASE_URL = "sqlite+aiosqlite:///./sql_app.db"
 engine = create_async_engine(
     DATABASE_URL,
     echo=True,      # echo=True : 실행되는 SQL 쿼리를 콘솔에 출력 (디버깅 시 유용)
-    future=True
+    future=True     # SQLAlchemy 2.0 방식 사용 명시 (권장)
 )
 
 
