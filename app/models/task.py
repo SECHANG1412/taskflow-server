@@ -17,13 +17,14 @@ class TaskBase(BaseModel):
     }
 
 
+
+# 할 일 응답 또는 내부 표현 모델
 class TaskCreate(TaskBase):
     # 새 Task를 만들 때 클라이언트가 보내는 요청 모델입니다.
-    # 현재는 TaskBase와 필드가 같기 때문에 별도 필드를 추가하지 않습니다.
+    # TaskBase와 같은 필드를 사용하므로 별도 필드는 추가하지 않습니다.
     pass
 
 
-# 할 일 응답 또는 내부 표현 모델
 class Task(TaskBase):
     # 서버가 응답으로 돌려주는 Task 모델입니다.
     # TaskBase 필드에 서버가 관리하는 id와 completed 값을 추가합니다.

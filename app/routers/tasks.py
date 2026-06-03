@@ -25,7 +25,7 @@ next_task_id: int = 1
 # POST /tasks/
 # 클라이언트가 보낸 TaskCreate 데이터를 받아 새 Task를 생성합니다.
 # summary는 Swagger 문서(/docs)에 표시될 API 설명입니다.
-@router.post("/", response_mode=Task, status_code=status.HTTP_201_CREATED, summary="Create a new task")
+@router.post("/", response_model=Task, status_code=status.HTTP_201_CREATED, summary="Create a new task")
 async def create_task(task_in: TaskCreate):
 
     # 함수 안에서 전역 변수 next_task_id 값을 변경하기 위해 global을 사용합니다.
