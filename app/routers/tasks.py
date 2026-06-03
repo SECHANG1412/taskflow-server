@@ -58,15 +58,14 @@ async def read_tasks(
 ):
     
     # 1. SELECT 쿼리 생성 (SQLAlchemyTask 모델의 모든 컬럼 선택)
-    # OFFSET 과 LIMIT 추가
-    # select(SQLAlchemyTask)는 task 테이블에서 Task들을 조회하겠다는 SELECT 문입니다. -> 처음부터 시작해서 최대 100개 가져와라
+    # task 테이블에서 데이터를 조회할 건데, 앞에서 skip개는 건너뛰고, 최대 limit개만 가져와.
     query = select(SQLAlchemyTask).offset(skip).limit(limit)
     
     # 2. 쿼리 실행
-    # execute()가 실제로 SELECT 문을 DB에 보냅니다.
+    # 방금 만든 query를 DB에 실제로 실행시키고, DB가 조회 결과를 보내줬고, 그 결과 묶음을 result라는 변수에 저장했다.
     result = await db.execute(query)
 
-    # 3. 결과에서 SQLAlchemyTask 객체 리스트 추출
+    # 3. 결과에서 SQLAlchemyTask 객체 리스트 추출 -> DB 조회 결과에서 Task들만 꺼내서 리스트로 만든다
     # scalars() 는 각 행의 첫 번째 요소(여기서는 Task 객체)만 가져옴
     # scalars().all()은 조회 결과에서 SQLAlchemyTask 객체들만 리스트로 꺼냅니다.
     tasks = result.scalars().all()
