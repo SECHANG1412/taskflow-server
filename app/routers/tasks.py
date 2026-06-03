@@ -59,7 +59,7 @@ async def read_tasks(
     
     # 1. SELECT 쿼리 생성 (SQLAlchemyTask 모델의 모든 컬럼 선택)
     # OFFSET 과 LIMIT 추가
-    # select(SQLAlchemyTask)는 task 테이블에서 Task들을 조회하겠다는 SELECT 문입니다.
+    # select(SQLAlchemyTask)는 task 테이블에서 Task들을 조회하겠다는 SELECT 문입니다. -> 처음부터 시작해서 최대 100개 가져와라
     query = select(SQLAlchemyTask).offset(skip).limit(limit)
     
     # 2. 쿼리 실행
