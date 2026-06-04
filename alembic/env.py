@@ -1,6 +1,5 @@
 import asyncio
 from logging.config import fileConfig
-from multiprocessing import connection
 import os
 import sys
 
@@ -23,6 +22,7 @@ sys.path.insert(0, os.path.realpath(os.path.join(os.path.dirname(__file__), ".."
 # --- ✨ Base 및 모델 임포트 ✨ ---
 from app.database import Base  # database.py의 Base 임포트
 import app.sql_models.task     # task 모델 모듈 임포트 (Base.metadata가 인식하도록)
+import app.sql_models.user 
 # 만약 다른 모델 파일들이 있다면 모두 임포트해주는 것이 안전합니다.
 # -------------------------------------
 
@@ -53,7 +53,7 @@ def run_migrations_offline() -> None:
 
     # context 설정 및 마이그레이션 실행 (run_sync 내부에서 호출될 함수)
     # Alembic에게 어떤 연결과 어떤 모델 설계도를 기준으로 실행할지 알려줍니다.
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=True)
 
     with context.begin_transaction():
         # 실제 마이그레이션 실행 지점입니다.
@@ -66,7 +66,7 @@ def do_run_migrations(connection):
     # connection은 DB 연결이고, target_metadata는 SQLAlchemy 모델 설계도입니다.
     # context 설정 및 마이그레이션 실행 (run_sync 내부에서 호출될 함수)
     # Alembic 실행 환경에 DB 연결과 모델 메타데이터를 등록합니다.
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(connection=connection, target_metadata=target_metadata, render_as_batch=True)
     with context.begin_transaction():
         # versions 폴더의 마이그레이션 스크립트를 실행합니다.
         context.run_migrations()
