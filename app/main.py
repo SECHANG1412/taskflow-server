@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from .routers import tasks
+from .routers import tasks, users
 
 # FastAPI 애플리케이션 객체를 생성합니다.
 # 이 app 객체가 프로젝트의 중심이 되고, 라우터와 엔드포인트가 여기에 연결됩니다.
@@ -12,6 +12,7 @@ app.include_router(
     prefix="/tasks",    # 이 라우터의 모든 API 앞에 /tasks 경로를 붙입니다.
     tags=["Task"]       # Swagger 문서(/docs)에서 이 API들을 Task 그룹으로 보여줍니다.
 )
+app.include_router(users.router, prefix="/users", tags=["Users"])
 
 
 # GET /
