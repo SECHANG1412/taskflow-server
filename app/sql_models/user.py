@@ -2,22 +2,17 @@ from sqlalchemy import String, Integer, Column, null
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from typing import List, Optional, TYPE_CHECKING
 from ..database import Base
+from sqlalchemy import Boolean
 
 if TYPE_CHECKING:
     from .task import Task
 
 # User 테이블과 매핑될 User 클래스 정의
 class User(Base):
-    __tablename__ = "users" # 테이블 이름: users
+    __tablename__ = "users" 
 
-
-    # id 컬럼: 정수, 기본 키, 인덱스
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-
-    # email 컬럼: 문자열(100자), 고유해야 함(Unique), 인덱스
     email: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
-
-    # hashed_password 컬럼: 문자열 (실제로는 해시된 비밀번호 저장)
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
 
     # --- ✨ Task 모델과의 관계 설정 (1:N 중 '1' 쪽) ✨ ---
@@ -26,7 +21,7 @@ class User(Base):
     # back_populates="owner": Task 모델의 'owner' 속성과 서로 연결됨을 명시 (양방향)
     tasks: Mapped[List["Task"]] = relationship("Task", back_populates="owner")
 
-
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default='false', nullable=False)
 
     def __repr__(self):
         return f"<User(id={self.id}, email='{self.email}')>"

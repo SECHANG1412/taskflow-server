@@ -82,7 +82,10 @@ async def read_task(
     # 특정 task_id만으로 조회하면 다른 사용자의 할 일도 조회될 수 있습니다.
     # 그래서 task id 조건과 owner_id 조건을 함께 사용합니다.
     # 이 조건은 "요청한 task_id의 할 일이면서, 현재 로그인한 사용자의 할 일인 것"만 찾습니다.
-    query = select(SQLAlchemyTask).where(SQLAlchemyTask.id == task_id, SQLAlchemyTask.owner_id == current_user.id)
+    query = select(SQLAlchemyTask).where(
+        SQLAlchemyTask.id == task_id,               # ID 일치 확인
+        SQLAlchemyTask.owner_id == current_user.id  # 소유권 확인!
+    )
 
     # 위 SELECT 쿼리를 실제 DB에 실행합니다.
     result = await db.execute(query)
@@ -91,8 +94,7 @@ async def read_task(
     # 여기서 None이 나오는 경우는 task_id가 없거나, 있어도 현재 사용자의 할 일이 아닌 경우입니다.
     task = result.scalar_one_or_none()
 
-    # task가 None이면 클라이언트에게 404를 반환합니다.
-    # 보안상 "다른 사용자의 할 일입니다"라고 알려주지 않고, 그냥 찾을 수 없다고 처리합니다.
+    # Task가 없거나, 내 Task가 아니면 404 반환
     if task is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, 

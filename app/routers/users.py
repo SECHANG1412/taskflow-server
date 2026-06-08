@@ -1,20 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-
-# Pydantic 모델 임포트
-# User 는 Pydantic 모델
 from ..models.user import User as PydanticUser, UserCreate
-
-# SQLAlchemy 모델 임포트
-# User 는 SQLAlchemy 모델
 from ..sql_models.user import User as SQLAlchemyUser
-
-# DB 세션 의존성 임포트
 from ..database import get_db
-
-# 비밀번호 해싱 함수 임포트
-from ..security import get_password_hash
+from ..security import get_password_hash, require_admin
+from typing import List
+from ..security import require_admin
 
 
 
@@ -85,3 +77,41 @@ async def register_user(
     # 응답 모델이 PydanticUser라서 hashed_password는 응답에 포함되지 않습니다.
     # 즉 DB에는 해시 비밀번호가 저장되지만, 클라이언트에게는 id/email만 보여줍니다.
     return db_user
+
+
+
+
+
+# GET /users/all  --> 관리자 전용 사용자 전체 조회 API입니다.
+# require_admin을 통과한 관리자만 모든 사용자 목록을 조회할 수 있습니다.
+@router.get("/all", response_model=List[PydanticUser], summary="Get all users (Admin Only)")
+async def read_all_users(
+    db: AsyncSession = Depends(get_db),
+    admin_user: SQLAlchemyUser = Depends(require_admin)
+):
+    # db는 이번 요청에서 DB 조회를 처리할 SQLAlchemy 세션입니다.
+    # admin_user는 require_admin을 통과한 현재 로그인 관리자 사용자입니다.
+    
+    # 여기서는 get_current_user가 아니라 require_admin을 사용합니다.
+    # get_current_user는 "로그인한 사용자인가?"까지만 확인합니다.
+    # require_admin은 거기에 추가로 "관리자인가?"까지 확인합니다.
+    # 그래서 일반 사용자가 이 API를 호출하면 403 Forbidden 에러가 발생합니다.
+
+    print(f"Admin user '{admin_user.email}' accessing all users list.")
+
+    # users 테이블의 모든 사용자 데이터를 조회하는 SELECT 쿼리를 만듭니다.
+    # 특정 사용자만 고르는 where 조건이 없기 때문에 전체 사용자를 가져옵니다.
+    query = select(SQLAlchemyUser)
+
+    # 위에서 만든 SELECT 쿼리를 실제 DB에 실행합니다.
+    # result에는 DB가 돌려준 사용자 조회 결과가 들어갑니다.
+    result = await db.execute(query)
+
+    # scalars()는 조회 결과에서 SQLAlchemyUser 객체만 꺼냅니다.
+    # all()은 그 사용자 객체들을 전부 리스트로 만듭니다.
+    users = result.scalars().all()
+
+    # response_model=List[PydanticUser]가 있으므로 FastAPI가 응답을 PydanticUser 리스트 형태로 변환합니다.
+    # PydanticUser 모델에 포함된 필드만 클라이언트에게 응답됩니다.
+    # 보통 hashed_password 같은 민감한 값은 응답 모델에 넣지 않아서 클라이언트에게 노출되지 않게 합니다.
+    return users

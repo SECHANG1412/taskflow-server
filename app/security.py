@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timedelta, timezone
+from sqlite3 import SQLITE_LIMIT_ATTACHED
 from typing import Optional
 
 from jose import JWTError, jwt
@@ -187,3 +188,38 @@ async def get_current_user(
     # 여기까지 왔다는 것은 토큰도 유효하고, DB에 사용자도 존재한다는 뜻입니다.
     # tasks.py 같은 보호된 API에서는 이 반환값을 current_user로 받아 사용합니다.
     return user
+
+
+
+
+
+
+
+
+
+# 관리자 권한이 필요한 API에서 사용할 의존성 함수입니다.
+async def require_admin(
+        current_user: SQLAlchemyUser = Depends(get_current_user)
+) -> SQLAlchemyUser:
+    
+    # current_user는 get_current_user()를 통해 가져온 현재 로그인 사용자입니다.
+    # 즉, 이 함수가 실행된다는 것은 이미 JWT 토큰 검증은 통과했다는 뜻입니다.
+    # 여기서는 "로그인한 사용자인가?"가 아니라 "관리자 권한이 있는 사용자인가?"를 추가로 확인합니다.
+
+    if not current_user.is_admin: 
+        print(f"Forbidden: User '{current_user.email}' is not an admin.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator privileges required",
+        )
+
+        # current_user.is_admin이 False라면 일반 사용자입니다.
+        # 일반 사용자는 관리자 전용 API를 실행할 권한이 없으므로 403 Forbidden을 반환합니다.
+        # 401 Unauthorized는 "로그인이 안 됐거나 토큰이 이상하다"는 뜻이고,
+        # 403 Forbidden은 "누구인지는 알겠지만 이 작업을 할 권한은 없다"는 뜻입니다.
+    
+    return current_user
+
+    # 여기까지 통과했다는 것은 현재 사용자가 로그인도 되어 있고, 관리자 권한도 있다는 뜻입니다.
+    # 관리자 전용 라우터에서는 이 함수를 Depends(require_admin) 형태로 붙여서 사용합니다.
+    # 그러면 FastAPI가 실제 API 함수를 실행하기 전에 먼저 관리자 여부를 검사합니다.
