@@ -1,129 +1,189 @@
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
-# os:
-# 환경 변수에서 SECRET_KEY 같은 설정값을 가져오기 위해 사용합니다.
-#
-# datetime, timedelta, timezone:
-# JWT 토큰에 "언제 만료되는지"를 넣기 위해 사용합니다.
-# 예: 지금 시간 + 30분 = 토큰 만료 시간
-#
-# Optional:
-# expires_delta 값이 들어올 수도 있고, 안 들어올 수도 있다는 뜻을 표현합니다.
-#
-# jose.jwt:
-# JWT 토큰을 실제로 만들어주는 도구입니다.
-# 사용자 정보 + 만료 시간을 SECRET_KEY로 서명해서 문자열 토큰으로 바꿔줍니다.
-#
-# OAuth2PasswordBearer:
-# 나중에 Authorization: Bearer <token> 헤더에서 토큰만 꺼내기 위해 사용합니다.
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from .database import get_db
+from .sql_models.user import User as SQLAlchemyUser
+
+from .schemas.token import TokenData
 
 
-# --- 비밀번호 해싱 설정 ---
-# 사용할 해싱 스키마 지정 (bcrypt 권장), deprecated="auto"는 이전 형식 자동 감지/업데이트 지원
-# schemes=["bcrypt"]는 비밀번호를 bcrypt 방식으로 해싱하겠다는 뜻입니다.
-# deprecated="auto"는 오래된 해시 방식이 있으면 passlib가 자동으로 판단하게 합니다.
+# 비밀번호 해싱과 검증에 사용할 passlib 설정입니다.
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# 여기서 pwd_context는 비밀번호 전용 보안 도구라고 보면 됩니다.
+# 회원가입할 때는 사용자가 입력한 원본 비밀번호를 bcrypt 해시 문자열로 바꿉니다.
+# 로그인할 때는 사용자가 다시 입력한 원본 비밀번호가 DB에 저장된 해시와 맞는지 확인합니다.
+# bcrypt는 비밀번호 저장에 자주 쓰이는 안전한 해싱 방식입니다.
+# deprecated="auto"는 나중에 오래된 해싱 방식이 섞였을 때 passlib가 자동으로 판단할 수 있게 해주는 설정입니다.
 
 
 
-# --- 비밀번호 검증 함수 ---
-# 입력된 비밀번호와 해시된 비밀번호가 일치하는지 확인
+# 로그인 때 입력한 원본 비밀번호와 DB의 해시 비밀번호가 맞는지 확인합니다.
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    # 로그인할 때 사용합니다.
-    # plain_password는 사용자가 방금 입력한 원본 비밀번호입니다.
-    # hashed_password는 DB에 저장되어 있던 해시된 비밀번호입니다.
-    # 둘이 같은 비밀번호에서 나온 값이면 True, 아니면 False를 반환합니다.
+    # plain_password는 사용자가 로그인 화면에서 방금 입력한 원본 비밀번호입니다.
+    # hashed_password는 회원가입 때 해싱되어 DB에 저장된 비밀번호 문자열입니다.
+    # 원본 비밀번호끼리 비교하는 것이 아니라, passlib가 해시 규칙을 이용해 같은 비밀번호인지 검사합니다.
+    # 결과가 맞으면 True, 틀리면 False를 반환합니다.
     return pwd_context.verify(plain_password, hashed_password)
 
 
 
 
-# --- 비밀번호 해싱 함수 ---
-# 입력된 비밀번호를 해싱하여 반환
+
+# 회원가입 때 받은 원본 비밀번호를 DB 저장용 해시 문자열로 바꿉니다.
 def get_password_hash(password: str) -> str:
-    # 회원가입할 때 사용합니다.
-    # 사용자가 입력한 원본 비밀번호를 DB에 그대로 저장하지 않고, 
-    # bcrypt 해시 문자열로 바꿔서 저장하기 위해 사용합니다.
+    # 사용자의 비밀번호를 그대로 DB에 저장하면 매우 위험합니다.
+    # 그래서 회원가입 시점에 이 함수를 사용해서 비밀번호를 bcrypt 해시 문자열로 바꿉니다.
+    # DB에는 "1234" 같은 원본 비밀번호가 아니라, bcrypt가 만든 긴 해시 문자열만 저장됩니다.
+    # 나중에 로그인할 때는 verify_password()로 원본 비밀번호와 이 해시가 맞는지 검사합니다.
     return pwd_context.hash(password)
 
 
 
-# --- ✨ JWT 설정 ✨ ---
-# !!! 보안 경고: 실제 환경에서는 절대 코드에 직접 작성하지 마세요!
-# 환경 변수나 .env 파일, 보안 관리 도구를 사용하세요.
-# 예: 터미널에서 'openssl rand -hex 32' 실행하여 강력한 키 생성
-# SECRET_KEY:
-# JWT에 찍는 서버 전용 도장 같은 값입니다.
-# 서버는 이 값으로 토큰을 만들고, 나중에 같은 값으로 "우리 서버가 만든 토큰이 맞는지" 확인합니다.
+
+# JWT를 만들고 검증할 때 사용할 기본 설정입니다.
 SECRET_KEY = os.getenv("SECRET_KEY", "a_very_secret_key_that_should_be_in_env_var_or_secret_manager_0123456789abcdef")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-# ALGORITHM:
-# JWT에 도장을 찍을 때 사용할 서명 방식입니다.
-# HS256은 SECRET_KEY 하나로 토큰 생성과 검증을 둘 다 하는 방식입니다.
-ALGORITHM = "HS256"              # 사용할 서명 알고리즘 (HS256은 HMAC using SHA-256)
-ACCESS_TOKEN_EXPIRE_MINUTES = 30 # 액세스 토큰 유효 기간 (분 단위)
+# SECRET_KEY는 서버만 알고 있어야 하는 비밀값입니다.
+# JWT는 이 값으로 서명되기 때문에, 서버는 나중에 토큰을 보고 "내가 만든 토큰이 맞다"라고 확인할 수 있습니다.
+# 실제 서비스에서는 SECRET_KEY를 코드에 직접 적지 않고 .env나 서버 환경 변수로 관리합니다.
+
+# ALGORITHM은 JWT 서명에 사용할 방식입니다.
+# HS256은 SECRET_KEY 하나로 토큰 생성과 검증을 둘 다 처리하는 방식입니다.
+
+# ACCESS_TOKEN_EXPIRE_MINUTES는 로그인 토큰을 몇 분 동안만 사용할 수 있게 할지 정하는 값입니다.
+# 현재 값이 30이므로, 기본 토큰 만료 시간은 30분입니다.
 
 
 
-# --- ✨ OAuth2 Password Bearer 스키마 설정 ✨ ---
-# tokenUrl은 클라이언트가 사용자 이름과 비밀번호를 보내 토큰을 요청할 엔드포인트의 *상대* 경로입니다.
-# 예: "/token" -> 실제 URL은 http://<your_domain>/token
-# oauth2_scheme:
-# 보호된 API에서 Authorization 헤더에 담긴 Bearer 토큰을 꺼내기 위한 도구입니다.
-#
-# 예:
-# Authorization: Bearer abc.def.ghi
-#
-# 이 도구는 위 헤더에서 abc.def.ghi 부분만 꺼내줍니다.
-# tokenUrl="token"은 Swagger 문서에 "토큰은 /token에서 받아라"라고 알려주는 설정입니다.
+
+
+# 요청 헤더에서 Bearer 토큰을 꺼내기 위한 FastAPI 보안 도구입니다.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
+# 클라이언트가 보호된 API에 접근할 때는 보통 아래 형태로 토큰을 보냅니다.
+# Authorization: Bearer <JWT토큰값>
+
+# oauth2_scheme은 이 Authorization 헤더에서 실제 JWT 토큰 문자열만 꺼내줍니다.
+# 여기서 토큰이 맞는지 검증하는 것은 아닙니다.
+# 토큰 검증은 아래 get_current_user() 함수에서 jwt.decode()로 처리합니다.
+
+# tokenUrl="token"은 Swagger 문서에 알려주는 로그인 주소입니다.
+# Swagger의 Authorize 기능은 이 값을 보고 "/token으로 로그인해서 토큰을 받으면 되는구나"라고 알 수 있습니다.
 
 
-# --- ✨ JWT 생성 함수 ✨ ---
+
+
+
+# 로그인 성공 후 클라이언트에게 줄 JWT access token을 만듭니다.
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    # data:
-    # JWT 안에 넣고 싶은 사용자 정보입니다.
-    # 보통 {"sub": user.email}처럼 "이 토큰의 주인이 누구인지"를 넣습니다.
-    #
-    # expires_delta:
-    # 토큰 유효 시간을 직접 지정하고 싶을 때 사용합니다.
-    # 값이 없으면 ACCESS_TOKEN_EXPIRE_MINUTES 기준으로 기본 만료 시간을 사용합니다.
-
-
-    # 원본 data를 바로 수정하지 않기 위해 복사본을 만듭니다.
-    # 이 복사본에 exp 같은 JWT 전용 정보를 추가해서 토큰으로 바꿉니다.
+    # data에는 JWT 안에 넣고 싶은 정보가 들어옵니다.
+    # 보통 {"sub": user.email}처럼 "이 토큰의 주인이 누구인지"를 나타내는 정보를 넣습니다.
+    # 원본 data를 직접 수정하지 않기 위해 copy()로 복사본을 만듭니다.
     to_encode = data.copy()
-    
 
-
-    # expires_delta가 들어오면:
-    # "현재 UTC 시간 + 직접 지정한 시간"을 만료 시간으로 사용합니다.
+    # expires_delta가 들어오면, 호출한 쪽에서 직접 지정한 유효 시간을 사용합니다.
+    # 예를 들어 expires_delta가 10분이면 현재 시간에서 10분 뒤를 만료 시간으로 잡습니다.
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
-        
 
-    # expires_delta가 없으면:
-    # "현재 UTC 시간 + 기본 설정 시간(30분)"을 만료 시간으로 사용합니다.
+    # expires_delta가 없으면 기본 설정값인 ACCESS_TOKEN_EXPIRE_MINUTES를 사용합니다.
+    # 현재 설정에서는 기본 만료 시간이 30분입니다.
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-        
-        # JWT 안에 exp를 추가합니다.
-        # exp는 expiration time의 줄임말로, "이 토큰은 이 시간 이후로 만료된다"는 뜻입니다.
+
+        # JWT 표준에서 exp는 expiration time, 즉 토큰 만료 시간을 뜻합니다.
+        # 이 값이 들어가야 서버가 나중에 토큰을 검증할 때 "아직 유효한 토큰인가?"를 판단할 수 있습니다.
         to_encode.update({"exp": expire})
-        
 
-        # to_encode에 담긴 정보를 SECRET_KEY와 ALGORITHM으로 서명해서 JWT 문자열을 만듭니다.
-        # 이 결과가 클라이언트에게 전달되는 access_token입니다.
+        # jwt.encode()는 딕셔너리 데이터를 JWT 문자열로 바꿔줍니다.
+        # 이때 SECRET_KEY와 ALGORITHM을 사용해서 토큰에 서버의 서명을 붙입니다.
+        # 이 서명 덕분에 서버는 나중에 토큰이 위조되지 않았는지 확인할 수 있습니다.
         encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-        
 
-        # 완성된 JWT 토큰 문자열을 반환합니다.
+        # 최종적으로 만들어진 JWT 문자열을 반환합니다.
+        # 클라이언트는 이 값을 access_token으로 받아 저장하고, 이후 요청에 Bearer 토큰으로 보냅니다.
         return encoded_jwt
-        
+
+
+
+
+
+
+# JWT 토큰을 검증하고, 현재 요청을 보낸 사용자를 DB에서 찾아 반환합니다.
+async def get_current_user(
+        token: str = Depends(oauth2_scheme),
+        db: AsyncSession = Depends(get_db)
+) -> SQLAlchemyUser:
+    
+    # 인증 실패 때 반복해서 사용할 401 예외 객체입니다.
+    # 토큰이 없거나, 토큰이 잘못됐거나, 만료됐거나, 사용자를 찾지 못하면 이 예외를 발생시킵니다.
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    # token은 oauth2_scheme이 Authorization 헤더에서 꺼내준 JWT 문자열입니다.
+    # db는 get_db가 만들어준 DB 세션입니다.
+    # 이 함수는 먼저 토큰 자체를 검증하고, 그다음 토큰 안의 이메일로 DB에서 사용자를 찾습니다.
+
+    try:
+        # jwt.decode()는 토큰을 해석하면서 동시에 검증합니다.
+        # SECRET_KEY가 다르면 위조된 토큰으로 판단하고 실패합니다.
+        # exp 만료 시간이 지났어도 실패합니다.
+        # 검증에 성공하면 payload라는 딕셔너리가 나옵니다.
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+        # sub는 subject의 줄임말입니다.
+        # 여기서는 "이 토큰의 주인이 누구인가?"를 나타내는 값으로 이메일을 사용합니다.
+        email: str = payload.get("sub")
+
+        # sub가 없으면 토큰은 있어도 누구의 토큰인지 알 수 없습니다.
+        # 그래서 인증 실패로 처리합니다.
+        if email is None:
+            print("JWT 'sub' claim missing")
+            raise credentials_exception
+
+        # 토큰에서 꺼낸 이메일을 TokenData 스키마로 한 번 감싸 검증합니다.
+        # 이렇게 하면 이후 코드에서 token_data.email처럼 명확하게 사용할 수 있습니다.
+        token_data = TokenData(email=email)
+
+    except JWTError as e:
+        # JWTError는 토큰 검증 중 문제가 생겼을 때 발생합니다.
+        # 예를 들어 토큰이 위조됐거나, 형식이 잘못됐거나, 만료된 경우입니다.
+        print(f"JWT Error during decoding: {e}")
+        raise credentials_exception
+    
+
+    # 토큰 자체가 유효하더라도, DB에 해당 사용자가 실제로 존재하는지 다시 확인해야 합니다.
+    # 예를 들어 사용자가 탈퇴했는데 예전 토큰으로 요청할 수도 있기 때문입니다.
+    query = select(SQLAlchemyUser).where(SQLAlchemyUser.email == token_data.email)
+
+    # 위에서 만든 SELECT 쿼리를 실제 DB에 실행합니다.
+    result = await db.execute(query)
+
+    # 조회 결과에서 사용자 한 명을 꺼냅니다.
+    # 사용자가 있으면 User 객체, 없으면 None이 됩니다.
+    user = result.scalar_one_or_none
+
+    # DB에서 사용자를 찾지 못하면 인증 실패로 처리합니다.
+    # 토큰 안의 이메일이 정상이어도, 현재 DB에 없는 사용자라면 API를 사용할 수 없습니다.
+    if user is None:
+        print(f"User not found in DB for email from token: {token_data.email}")
+        raise credentials_exception
+
+    # 여기까지 왔다는 것은 토큰도 유효하고, DB에 사용자도 존재한다는 뜻입니다.
+    # tasks.py 같은 보호된 API에서는 이 반환값을 current_user로 받아 사용합니다.
+    return user
