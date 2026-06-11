@@ -50,11 +50,15 @@ def get_password_hash(password: str) -> str:
 
 
 
+# --- JWT 설정 ---
+# ✨ 환경 변수에서 SECRET_KEY 읽어오기 ✨
 
 # JWT를 만들고 검증할 때 사용할 기본 설정입니다.
-SECRET_KEY = os.getenv("SECRET_KEY", "a_very_secret_key_that_should_be_in_env_var_or_secret_manager_0123456789abcdef")
+SECRET_KEY = os.getenv("SECRET_KEY", "please_change_this_default_secret_key")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# ✨ 환경 변수에서 만료 시간 읽어오기 (숫자 타입 변환 필요) ✨
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 
 # SECRET_KEY는 서버만 알고 있어야 하는 비밀값입니다.
 # JWT는 이 값으로 서명되기 때문에, 서버는 나중에 토큰을 보고 "내가 만든 토큰이 맞다"라고 확인할 수 있습니다.

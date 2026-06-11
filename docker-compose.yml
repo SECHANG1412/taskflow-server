@@ -1,0 +1,59 @@
+# docker-compose.yml
+# Docker Compose 파일 포맷 버전을 명시합니다 (선택적이지만 권장).
+version: '3.8'
+
+# 실행할 컨테이너(서비스)들을 정의합니다.
+services:
+  # FastAPI 애플리케이션 서비스 정의
+  app:
+    # 현재 디렉토리의 Dockerfile을 사용하여 이미지를 빌드합니다.
+    build: .
+    # 호스트의 8000번 포트와 컨테이너의 8000번 포트를 연결합니다.
+    ports:
+      - "8000:8000"
+    # 볼륨 마운트: 로컬의 ./app 디렉토리를 컨테이너의 /code/app 에 연결 (개발 시 코드 변경 자동 반영)
+    # 운영 환경에서는 보통 빌드 시 코드를 복사하고 이 줄은 주석 처리합니다.
+    volumes:
+      - ./app:/code/app
+    # 컨테이너 내부에 설정할 환경 변수들
+    environment:
+      # .env 파일에 정의된 변수 값을 사용합니다.
+      - DATABASE_URL=${DATABASE_URL}
+      - SECRET_KEY=${SECRET_KEY}
+      # - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES} # 필요하다면 추가
+    # 의존성 설정: 'db' 서비스가 시작된 후에 'app' 서비스가 시작되도록 합니다.
+    depends_on:
+      - db
+    # 사용할 네트워크 지정
+    networks:
+      - app_network
+
+  # PostgreSQL 데이터베이스 서비스 정의
+  db:
+    # Docker Hub의 공식 PostgreSQL 이미지를 사용합니다 (버전 15 예시).
+    image: postgres:15
+    # 데이터 영속성을 위해 Docker 볼륨을 사용합니다.
+    # 'postgres_data' 라는 이름의 볼륨을 컨테이너의 '/var/lib/postgresql/data/' 경로에 연결합니다.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    # PostgreSQL 컨테이너 설정을 위한 환경 변수 (.env 파일 값 사용)
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    # (선택 사항) 호스트에서 DB에 직접 접속해야 할 경우 포트 노출 (주의해서 사용)
+    ports:
+      - "5432:5432"
+    # 사용할 네트워크 지정
+    networks:
+      - app_network
+
+# 데이터 영속성을 위한 Docker 볼륨 정의
+volumes:
+  postgres_data: # 위 'db' 서비스에서 사용한 볼륨 이름
+
+# 서비스들이 사용할 커스텀 네트워크 정의
+networks:
+  app_network:
+    driver: bridge # 기본 브릿지 드라이버 사용
+

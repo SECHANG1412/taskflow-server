@@ -1,3 +1,5 @@
+import os
+
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -29,9 +31,12 @@ from sqlalchemy.orm import sessionmaker, declarative_base
   입니다.
 '''
 
+# --- ✨ 환경 변수에서 데이터베이스 URL 읽어오기 ✨ ---
+
 # SQLAlchemy가 접속할 데이터베이스 주소입니다.
-# DB 파일 위치입니다. 여기서는 sql_app.db라는 SQLite 파일을 사용합니다.
-DATABASE_URL = "sqlite+aiosqlite:///./sql_app.db"
+# os.getenv("변수명", "기본값") : 환경 변수가 설정되어 있지 않으면 기본값 사용
+# Docker Compose 환경에서는 .env 파일 값이 자동으로 환경 변수로 설정됨
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./sql_app.db")
 
 
 # --- SQLAlchemy 비동기 엔진 생성 ---
